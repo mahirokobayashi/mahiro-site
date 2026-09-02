@@ -1,0 +1,275 @@
+---
+export interface Props {
+  name?: string;
+  meta?: string;
+  links?: { label: string; href: string }[];
+  count?: number;
+  grain?: number;
+  speed?: number;
+  range?: number;
+  mode?: 'edge' | 'fill';
+}
+
+const {
+  name = 'mahiro kobayashi',
+  meta = 'visual design — tokyo',
+  links = [
+    { label: 'work', href: '/work' },
+    { label: 'about', href: '/about' },
+    { label: 'contact', href: '/contact' },
+  ],
+  count = 4200,
+  grain = 0.9,
+  speed = 0.6,
+  range = 520,
+  mode = 'edge',
+} = Astro.props;
+---
+
+<section
+  class="hero"
+  data-filings
+  data-name={name}
+  data-count={count}
+  data-grain={grain}
+  data-speed={speed}
+  data-range={range}
+  data-mode={mode}
+>
+  <canvas data-canvas aria-hidden="true"></canvas>
+
+  <div class="ui">
+    <nav class="nav">
+      <span class="meta">{meta}</span>
+      <ul>
+        {links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+      </ul>
+    </nav>
+  </div>
+
+  <h1 class="name" data-hit>{name}</h1>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    height: 100svh;
+    min-height: 420px;
+    background: #f0f5fa;
+    overflow: hidden;
+  }
+  .hero canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .ui {
+    position: absolute;
+    inset: 0;
+    padding: 22px 32px;
+    pointer-events: none;
+  }
+  .nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: #696978;
+  }
+  .nav ul {
+    display: flex;
+    gap: 22px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    pointer-events: auto;
+  }
+  .nav a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .nav a:hover {
+    color: #232332;
+  }
+
+  /* 名前はDOM上に本物のh1として存在させ、視覚的にはcanvasが描く */
+  .name {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 480px;
+    max-width: 88%;
+    height: 96px;
+    margin: 0;
+    cursor: pointer;
+    color: transparent;
+    font-size: 1px;
+    line-height: 96px;
+    text-align: center;
+    user-select: none;
+  }
+
+  /* JSが動かない・モーション抑制時は素のテキストとして見せる */
+  .hero:not([data-ready]) .name,
+  .hero[data-static] .name {
+    color: #232332;
+    font-size: clamp(20px, 4.6vw, 46px);
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    line-height: 96px;
+    cursor: default;
+  }
+
+  @media (max-width: 640px) {
+    .ui { padding: 18px 20px; }
+    .nav ul { gap: 16px; }
+  }
+</style>
+
+<script>
+  type P = { x: number; y: number; d: number; s: number; tx: number; ty: number };
+
+  function init(root: HTMLElement) {
+    const cv = root.querySelector<HTMLCanvasElement>('[data-canvas]');
+    const hit = root.querySelector<HTMLElement>('[data-hit]');
+    if (!cv || !hit) return;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) {
+      root.setAttribute('data-static', '');
+      return;
+    }
+    root.setAttribute('data-ready', '');
+
+    const TXT = root.dataset.name || 'mahiro kobayashi';
+    const N = Number(root.dataset.count) || 4200;
+    const GRAIN = Number(root.dataset.grain) || 0.9;
+    const SPEED = Number(root.dataset.speed) || 0.6;
+    const RANGE = Number(root.dataset.range) || 520;
+    const MODE = root.dataset.mode === 'fill' ? 'fill' : 'edge';
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const decay = 1 - Math.pow(0.001, 1 / (SPEED * 60));
+
+    let W = 0, H = 0, FS = 44, FAM = 'sans-serif';
+    let P: P[] = [];
+    let TG: number[] = [];
+    let hov = false, u = 0, t = 0, raf = 0;
+
+    const setFont = (c: CanvasRenderingContext2D) => {
+      c.font = `400 ${FS}px ${FAM}`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      if ('letterSpacing' in c) (c as any).letterSpacing = `${FS * 0.05}px`;
+    };
+
+    function assign() {
+      if (!TG.length) return;
+      const n = TG.length / 2;
+      const sc = MODE === 'edge' ? 2.6 : 1.4;
+      for (const p of P) {
+        const q = Math.floor(Math.random() * n) * 2;
+        const a = Math.random() * 6.2832;
+        const d = -Math.log(Math.random() + 1e-4) * sc;
+        p.tx = TG[q] + Math.cos(a) * d;
+        p.ty = TG[q + 1] + Math.sin(a) * d;
+      }
+    }
+
+    function build() {
+      const r = cv.getBoundingClientRect();
+      W = r.width; H = r.height;
+      if (W < 2 || H < 2) return;
+      cv.width = W * dpr; cv.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      FAM = getComputedStyle(document.body).fontFamily || 'sans-serif';
+      FS = Math.min(46, Math.max(20, W * 0.068));
+
+      const oc = document.createElement('canvas');
+      oc.width = Math.floor(W); oc.height = Math.floor(H);
+      const o = oc.getContext('2d');
+      if (!o) return;
+      setFont(o);
+      o.fillStyle = '#000';
+      o.fillText(TXT, W / 2, H / 2);
+
+      let im: ImageData | null = null;
+      try { im = o.getImageData(0, 0, oc.width, oc.height); } catch { im = null; }
+      TG = [];
+      if (im) {
+        const D = im.data, ew = oc.width, eh = oc.height;
+        const st = MODE === 'fill' ? 2 : 1;
+        for (let y = 1; y < eh - 1; y += st) {
+          for (let x = 1; x < ew - 1; x += st) {
+            const i = (y * ew + x) * 4 + 3;
+            if (D[i] > 130) {
+              if (MODE === 'fill') TG.push(x, y);
+              else if (D[i - 4] < 80 || D[i + 4] < 80 || D[i - ew * 4] < 80 || D[i + ew * 4] < 80) TG.push(x, y);
+            }
+          }
+        }
+      }
+
+      P = [];
+      for (let k = 0; k < N; k++) {
+        P.push({
+          x: Math.random() * W, y: Math.random() * H,
+          d: Math.random() * 0.5, s: 0.35 + Math.random() * 0.65,
+          tx: 0, ty: 0,
+        });
+      }
+      assign();
+    }
+
+    const ez = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v * v * (3 - 2 * v));
+
+    function frame() {
+      t += 0.02;
+      u += ((hov ? 1 : 0) - u) * decay;
+      ctx.clearRect(0, 0, W, H);
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
+        let pull = Math.max(0, 1 - dist / RANGE); pull *= pull;
+        const pu = ez((u - p.d * 0.28) / 0.72) * pull;
+        let x = p.x + (p.tx - p.x) * pu;
+        let y = p.y + (p.ty - p.y) * pu;
+        x += Math.sin(t * 3 + i) * 0.55 * pu;
+        y += Math.cos(t * 3.4 + i) * 0.55 * pu;
+        const w = GRAIN * (1 + 0.3 * pu);
+        const al = Math.min(1, ((0.11 + 0.16 * p.s) + 0.66 * pu) * (0.55 + 0.45 * Math.min(1, GRAIN)));
+        ctx.fillStyle = `rgba(35,35,50,${al.toFixed(3)})`;
+        ctx.fillRect(x, y, w, w);
+      }
+      setFont(ctx);
+      ctx.fillStyle = '#232332';
+      ctx.fillText(TXT, W / 2, H / 2);
+      raf = requestAnimationFrame(frame);
+    }
+
+    hit.addEventListener('mouseenter', () => { hov = true; });
+    hit.addEventListener('mouseleave', () => { hov = false; });
+    hit.addEventListener('touchstart', (e) => { e.preventDefault(); hov = !hov; }, { passive: false });
+
+    let rt: number;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(build, 150); });
+    if (document.fonts?.ready) document.fonts.ready.then(build);
+
+    // タブが隠れている間はループを止める
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else raf = requestAnimationFrame(frame);
+    });
+
+    build();
+    frame();
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-filings]').forEach(init);
+</script>
